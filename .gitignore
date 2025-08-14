@@ -1,0 +1,13 @@
+__pycache__/
+.venv/
+*.pyc
+.DS_Store
+rag_pipeline/output/
+rag_pipeline/data/
+rag_pipeline/conversation_log.json
+rag_pipeline/**/*.ipynb_checkpoints/
+rag-ui/__pycache__/
+rag-ui/*.log
+rag-ui/.flaskenv
+rag-ui/instance/
+

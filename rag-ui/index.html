@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial RAG System</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>RAG trials</h1>
+            <p class="subtitle">Using the Apple Annual Report. Add MD/JSON files in the input folder to test other files.</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Query Section -->
+            <section class="query-section">
+                <form id="queryForm" class="query-form">
+                    <div class="input-group">
+                        <input 
+                            type="text" 
+                            id="queryInput" 
+                            placeholder="e.g., Tell me about the EPS this year"
+                            class="query-input"
+                            required
+                        >
+                        <button type="submit" class="btn-primary" id="searchBtn">
+                            Search
+                        </button>
+                        <button type="button" class="btn-secondary" id="historyBtn">
+                            Conversation History
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Results Grid -->
+            <div class="results-grid">
+                <!-- Answer Card -->
+                <section class="answer-section">
+                    <div class="card answer-card">
+                        <h2>Answer</h2>
+                        <div id="answerContent" class="answer-content">
+                            <div class="empty-state">Submit a query to get started</div>
+                        </div>
+                        
+                        <!-- Logs Section -->
+                        <details class="thinking-section" id="thinkingSection">
+                            <summary>Logs</summary>
+                            <div class="logs-container">
+                                <div id="logsContent" class="logs-content"></div>
+                            </div>
+                        </details>
+                    </div>
+                </section>
+
+                <!-- Metrics & Sources -->
+                <aside class="sidebar">
+                    <!-- Metrics Card -->
+                    <div class="card metrics-card">
+                        <h3>Metrics</h3>
+                        <div id="metricsContent" class="metrics-content">
+                            <div class="metric-row">
+                                <span class="metric-label">Total time:</span>
+                                <span class="metric-value" id="totalTime">--</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Tokens:</span>
+                                <span class="metric-value" id="tokensUsed">--</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">CPU (peak):</span>
+                                <span class="metric-value" id="cpuPeak">--</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Memory (peak):</span>
+                                <span class="metric-value" id="memoryPeak">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sources Card -->
+                    <div class="card sources-card">
+                        <h3>Top Sources</h3>
+                        <div id="sourcesContent" class="sources-content">
+                            <div class="empty-state">No sources available</div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+
+            <!-- Conversation History Panel -->
+            <aside class="history-panel" id="historyPanel">
+                <div class="history-content">
+                    <div class="history-header">
+                        <h2>Conversation History</h2>
+                        <button class="close-btn" id="closeHistoryBtn">×</button>
+                    </div>
+                    <div class="history-body">
+                        <div class="history-list">
+                            <div id="chatsList" class="chats-list">
+                                <div class="empty-state">No saved chats</div>
+                            </div>
+                        </div>
+                        <div class="history-details">
+                            <div id="chatDetails" class="chat-details">
+                                <div class="empty-state">Select a chat to view details</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

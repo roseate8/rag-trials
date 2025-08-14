@@ -1,0 +1,410 @@
+// Global state
+let currentQuery = '';
+let isProcessing = false;
+let conversationHistory = [];
+
+// DOM Elements
+const queryForm = document.getElementById('queryForm');
+const queryInput = document.getElementById('queryInput');
+const searchBtn = document.getElementById('searchBtn');
+const historyBtn = document.getElementById('historyBtn');
+const answerContent = document.getElementById('answerContent');
+const thinkingSection = document.getElementById('thinkingSection');
+const logsContent = document.getElementById('logsContent');
+const metricsContent = document.getElementById('metricsContent');
+const sourcesContent = document.getElementById('sourcesContent');
+const historyPanel = document.getElementById('historyPanel');
+const closeHistoryBtn = document.getElementById('closeHistoryBtn');
+const chatsList = document.getElementById('chatsList');
+const chatDetails = document.getElementById('chatDetails');
+
+// Initialize the application
+document.addEventListener('DOMContentLoaded', function() {
+    initializeEventListeners();
+    loadConversationHistory();
+});
+
+// Event Listeners
+function initializeEventListeners() {
+    queryForm.addEventListener('submit', handleQuerySubmit);
+    historyBtn.addEventListener('click', toggleHistoryPanel);
+    closeHistoryBtn.addEventListener('click', closeHistoryPanel);
+    
+    // Close history panel when clicking outside
+    document.addEventListener('click', function(e) {
+        if (historyPanel.classList.contains('open') && 
+            !historyPanel.contains(e.target) && 
+            !historyBtn.contains(e.target)) {
+            closeHistoryPanel();
+        }
+    });
+}
+
+// Handle query submission
+async function handleQuerySubmit(e) {
+    e.preventDefault();
+    
+    if (isProcessing) return;
+    
+    const query = queryInput.value.trim();
+    if (!query) {
+        showError('Please enter a query');
+        return;
+    }
+    
+    currentQuery = query;
+    startProcessing();
+    
+    try {
+        await processQuery(query);
+    } catch (error) {
+        handleError(error);
+    } finally {
+        stopProcessing();
+    }
+}
+
+// Start processing state
+function startProcessing() {
+    isProcessing = true;
+    searchBtn.disabled = true;
+    searchBtn.textContent = 'Processing...';
+    queryInput.disabled = true;
+    
+    // Clear previous results
+    clearResults();
+    
+    // Show thinking section
+    thinkingSection.style.display = 'block';
+    thinkingSection.open = true;
+    
+    // Show initial state
+    answerContent.innerHTML = '<div class="thinking-indicator">Thinking...</div>';
+    
+    // Clear logs
+    logsContent.textContent = '';
+}
+
+// Stop processing state
+function stopProcessing() {
+    isProcessing = false;
+    searchBtn.disabled = false;
+    searchBtn.textContent = 'Search';
+    queryInput.disabled = false;
+    queryInput.value = '';
+}
+
+// Clear previous results
+function clearResults() {
+    answerContent.innerHTML = '';
+    resetMetrics();
+    sourcesContent.innerHTML = '<div class="empty-state">No sources available</div>';
+}
+
+// Process query and stream results
+async function processQuery(query) {
+    try {
+        // Start streaming logs
+        const logStream = await fetch('/api/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ query: query })
+        });
+
+        if (!logStream.ok) {
+            throw new Error(`HTTP error! status: ${logStream.status}`);
+        }
+
+        const reader = logStream.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+                if (line.trim()) {
+                    try {
+                        const data = JSON.parse(line);
+                        
+                        if (data.type === 'log') {
+                            appendLog(data.message);
+                        } else if (data.type === 'result') {
+                            result = data.data;
+                        } else if (data.type === 'error') {
+                            throw new Error(data.message);
+                        }
+                    } catch (e) {
+                        // If not JSON, treat as log
+                        appendLog(line);
+                    }
+                }
+            }
+        }
+
+        if (result) {
+            displayResults(result);
+            saveToHistory(query, result);
+        } else {
+            throw new Error('No result received');
+        }
+
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Append log message
+function appendLog(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    logsContent.textContent += `[${timestamp}] ${message}\n`;
+    logsContent.scrollTop = logsContent.scrollHeight;
+}
+
+// Display query results
+function displayResults(result) {
+    const { llm_response, timing, resources, retrieved_chunks } = result;
+    
+    // Display answer
+    answerContent.textContent = llm_response.answer;
+    
+    // Display metrics
+    displayMetrics(timing, resources, llm_response.tokens_used);
+    
+    // Display sources
+    displaySources(retrieved_chunks);
+}
+
+// Display metrics
+function displayMetrics(timing, resources, tokens) {
+    document.getElementById('totalTime').textContent = timing ? `${timing.total_time.toFixed(2)}s` : '--';
+    document.getElementById('tokensUsed').textContent = tokens || '--';
+    
+    if (resources && resources.peak_cpu_percent !== undefined) {
+        document.getElementById('cpuPeak').textContent = `${resources.peak_cpu_percent.toFixed(1)}%`;
+    } else {
+        document.getElementById('cpuPeak').textContent = '--';
+    }
+    
+    if (resources && resources.peak_memory_mb !== undefined) {
+        document.getElementById('memoryPeak').textContent = `${resources.peak_memory_mb.toFixed(1)} MB`;
+    } else {
+        document.getElementById('memoryPeak').textContent = '--';
+    }
+}
+
+// Reset metrics
+function resetMetrics() {
+    document.getElementById('totalTime').textContent = '--';
+    document.getElementById('tokensUsed').textContent = '--';
+    document.getElementById('cpuPeak').textContent = '--';
+    document.getElementById('memoryPeak').textContent = '--';
+}
+
+// Display sources
+function displaySources(chunks) {
+    if (!chunks || chunks.length === 0) {
+        sourcesContent.innerHTML = '<div class="empty-state">No sources found</div>';
+        return;
+    }
+    
+    const sourcesHtml = chunks.map(chunk => {
+        const payload = chunk.payload || {};
+        const chunkType = payload.chunk_type || 'unknown';
+        const snippet = payload.text ? payload.text.substring(0, 400) + (payload.text.length > 400 ? '...' : '') : 'No content';
+        
+        const scores = [];
+        if (chunk.score !== undefined) {
+            scores.push(`similarity: ${chunk.score.toFixed(4)}`);
+        }
+        if (chunk.rerank_score !== undefined) {
+            scores.push(`rerank: ${chunk.rerank_score.toFixed(4)}`);
+        }
+        
+        const metadataTags = [];
+        if (payload.chunk_type) metadataTags.push(payload.chunk_type);
+        if (payload.source) metadataTags.push(payload.source);
+        if (payload.section_title) metadataTags.push(payload.section_title);
+        if (payload.page_number) metadataTags.push(`page ${payload.page_number}`);
+        if (payload.method) metadataTags.push(payload.method);
+        
+        return `
+            <div class="source-chunk">
+                <div class="source-header">
+                    <span class="chunk-type">${chunkType}</span>
+                </div>
+                <div class="source-snippet">${snippet}</div>
+                ${scores.length > 0 ? `
+                    <div class="source-scores">
+                        ${scores.map(score => `<span class="score">${score}</span>`).join('')}
+                    </div>
+                ` : ''}
+                ${metadataTags.length > 0 ? `
+                    <div class="metadata-tags">
+                        ${metadataTags.map(tag => `<span class="metadata-tag">${tag}</span>`).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+    
+    sourcesContent.innerHTML = sourcesHtml;
+}
+
+// History panel functions
+function toggleHistoryPanel() {
+    historyPanel.classList.toggle('open');
+    if (historyPanel.classList.contains('open')) {
+        loadConversationHistory();
+    }
+}
+
+function closeHistoryPanel() {
+    historyPanel.classList.remove('open');
+}
+
+// Load conversation history
+async function loadConversationHistory() {
+    try {
+        const response = await fetch('/api/history');
+        if (response.ok) {
+            conversationHistory = await response.json();
+            displayConversationHistory();
+        } else {
+            chatsList.innerHTML = '<div class="empty-state">No saved chats</div>';
+        }
+    } catch (error) {
+        console.error('Failed to load conversation history:', error);
+        chatsList.innerHTML = '<div class="empty-state">Failed to load history</div>';
+    }
+}
+
+// Display conversation history
+function displayConversationHistory() {
+    if (!conversationHistory || conversationHistory.length === 0) {
+        chatsList.innerHTML = '<div class="empty-state">No saved chats</div>';
+        return;
+    }
+    
+    const historyHtml = conversationHistory
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .map((chat, index) => {
+            const timestamp = new Date(chat.timestamp).toLocaleString();
+            const query = chat.query.length > 60 ? chat.query.substring(0, 60) + '...' : chat.query;
+            
+            return `
+                <div class="chat-item" onclick="selectChat(${index})" data-index="${index}">
+                    <div class="chat-timestamp">${timestamp}</div>
+                    <div class="chat-query">${query}</div>
+                </div>
+            `;
+        }).join('');
+    
+    chatsList.innerHTML = historyHtml;
+}
+
+// Select chat from history
+function selectChat(index) {
+    // Remove previous selection
+    document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('selected'));
+    
+    // Add selection to clicked item
+    document.querySelector(`[data-index="${index}"]`).classList.add('selected');
+    
+    const chat = conversationHistory[index];
+    displayChatDetails(chat);
+}
+
+// Display chat details
+function displayChatDetails(chat) {
+    const result = chat.result;
+    const chunks = result.retrieved_chunks || [];
+    
+    const chunksHtml = chunks.length > 0 ? chunks.map(chunk => {
+        const payload = chunk.payload || {};
+        const chunkType = payload.chunk_type || 'unknown';
+        const snippet = payload.text ? payload.text.substring(0, 200) + (payload.text.length > 200 ? '...' : '') : 'No content';
+        
+        const metadataTags = [];
+        if (payload.chunk_type) metadataTags.push(payload.chunk_type);
+        if (payload.source) metadataTags.push(payload.source);
+        if (payload.section_title) metadataTags.push(payload.section_title);
+        
+        return `
+            <div class="source-chunk">
+                <div class="source-header">
+                    <span class="chunk-type">${chunkType}</span>
+                </div>
+                <div class="source-snippet">${snippet}</div>
+                ${metadataTags.length > 0 ? `
+                    <div class="metadata-tags">
+                        ${metadataTags.map(tag => `<span class="metadata-tag">${tag}</span>`).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('') : '<div class="empty-state">No sources</div>';
+    
+    chatDetails.innerHTML = `
+        <div class="detail-section">
+            <h4>Q: Query</h4>
+            <div class="detail-content">${chat.query}</div>
+        </div>
+        <div class="detail-section">
+            <h4>A: Answer</h4>
+            <div class="detail-content">${result.llm_response.answer}</div>
+        </div>
+        <div class="detail-section">
+            <h4>Top Chunks</h4>
+            <div class="detail-content">${chunksHtml}</div>
+        </div>
+    `;
+}
+
+// Save to history
+function saveToHistory(query, result) {
+    const historyEntry = {
+        timestamp: new Date().toISOString(),
+        query: query,
+        result: result,
+        tokens_used: result.llm_response.tokens_used,
+        timing: result.timing || {},
+        resources: result.resources || {}
+    };
+    
+    // Add to local history
+    conversationHistory.unshift(historyEntry);
+    
+    // Optionally save to server (if endpoint exists)
+    fetch('/api/history', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(historyEntry)
+    }).catch(error => console.error('Failed to save to server history:', error));
+}
+
+// Error handling
+function handleError(error) {
+    console.error('Query processing error:', error);
+    answerContent.innerHTML = `<div style="color: #ef4444;">Error: ${error.message}</div>`;
+    appendLog(`ERROR: ${error.message}`);
+}
+
+function showError(message) {
+    // Simple error display - could be enhanced with a proper notification system
+    alert(message);
+}
+
+// Make selectChat globally available
+window.selectChat = selectChat;
