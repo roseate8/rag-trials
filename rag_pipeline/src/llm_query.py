@@ -82,7 +82,7 @@ class LLMQuerySystem:
         
         Args:
             query: The search query
-            method: chunking method ('character_chunking' or 'token_chunking')
+            method: chunking method ('layout_aware_chunking')
             top_k: Number of top results to return
         
         Returns:
@@ -191,20 +191,20 @@ Answer:"""
                 "tokens_used": 0
             }
     
-    def full_query_pipeline(self, query: str, top_k: int = 10) -> Dict[str, Any]:
+    def full_query_pipeline(self, query: str, top_k: int = 10, method: str = "layout_aware_chunking") -> Dict[str, Any]:
         """
-        Complete pipeline: search layout-aware chunks and query LLM
+        Complete pipeline: search chunks and query LLM
         
         Args:
             query: User question
             top_k: Number of chunks to retrieve for context
+            method: Chunking method ('layout_aware_chunking')
         
         Returns:
-            Results from layout-aware chunking method with timing metrics
+            Results from selected chunking method with timing metrics
         """
         import time
         
-        method = "layout_aware_chunking"
         logger.info(f"Processing query with {method}")
         
         # Start total timing and capture initial resources
@@ -294,9 +294,9 @@ Answer:"""
         
         return result
     
-    def legacy_full_query_pipeline(self, query: str, top_k: int = 10) -> Dict[str, Any]:
+    def legacy_full_query_pipeline(self, query: str, top_k: int = 10, method: str = "layout_aware_chunking") -> Dict[str, Any]:
         """
         Legacy method for backward compatibility - returns results in old format
         """
-        result = self.full_query_pipeline(query, top_k)
-        return {"layout_aware_chunking": result}
+        result = self.full_query_pipeline(query, top_k, method)
+        return {method: result}

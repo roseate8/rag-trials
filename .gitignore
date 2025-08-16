@@ -1,13 +1,79 @@
+# Python
 __pycache__/
-.venv/
-*.pyc
-.DS_Store
-rag_pipeline/output/
-rag_pipeline/data/
-rag_pipeline/conversation_log.json
-rag_pipeline/**/*.ipynb_checkpoints/
-rag-ui/__pycache__/
-rag-ui/*.log
-rag-ui/.flaskenv
-rag-ui/instance/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+rag_pipeline/data/tables/
+rag_pipeline/output/
+*.log
+conversation_log.json
+
+# API Keys (if any get accidentally committed)
+*.key
+.env.local
+.env.production
+
+# Vector database data
+qdrant_data/
+data/qdrant/
+
+# Cache
+.cache/
+*.cache
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models (if any large models get downloaded)
+models/
+*.model
+*.bin
+
+# Temporary files
+tmp/
+temp/
+.tmp/

@@ -137,6 +137,24 @@ body {
     }
 }
 
+/* Chunk Type Selector */
+.chunk-type-select {
+    padding: 12px 16px;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    font-size: 14px;
+    background: #F6F6F5;
+    color: #242124;
+    min-width: 140px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.chunk-type-select:focus {
+    outline: none;
+    border-color: #242124;
+}
+
 /* Cards */
 .card {
     background-color: #F6F6F5;

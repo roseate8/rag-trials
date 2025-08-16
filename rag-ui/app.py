@@ -73,6 +73,7 @@ def process_query():
         return jsonify({"error": "Query is required"}), 400
     
     query = data['query'].strip()
+    chunk_type = data.get('chunk_type', 'layout-aware')  # Default to layout-aware
     if not query:
         return jsonify({"error": "Query cannot be empty"}), 400
     
@@ -82,6 +83,7 @@ def process_query():
             # Stream initial message
             yield f"data: {json.dumps({'type': 'log', 'message': 'Starting RAG query processing...'})}\n\n"
             yield f"data: {json.dumps({'type': 'log', 'message': f'Processing query: {query}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'log', 'message': f'Using chunk type: {chunk_type}'})}\n\n"
             
             # Process the query
             start_time = time.time()
@@ -102,7 +104,13 @@ def process_query():
             root_logger.addHandler(stream_handler)
             
             try:
-                result = query_system.full_query_pipeline(query)
+                # Map user-friendly names to method names
+                method_map = {
+                    "layout-aware": "layout_aware_chunking"
+                }
+                method = method_map.get(chunk_type, "layout_aware_chunking")
+                
+                result = query_system.full_query_pipeline(query, method=method)
                 end_time = time.time()
                 
                 # Stream all captured log messages

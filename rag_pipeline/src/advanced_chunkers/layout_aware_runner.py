@@ -12,7 +12,7 @@ from layout_aware_chunker import LayoutAwareChunker
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     file_path = \
-        "/Users/rudram.piplad/Documents/parsing-pocs/parsing_tool/output/markdown/10-Q4-2024-As-Filed.md"
+        "/Users/rudram.piplad/Documents/rag-trials/input/10-Q4-2024-As-Filed.md"
 
     chunker = LayoutAwareChunker(max_words=300)
     chunks, section_index = chunker.chunk_document(file_path=file_path, source_format="markdown")

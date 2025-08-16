@@ -45,23 +45,53 @@ class QdrantVectorStore:
             raise
     
     def store_chunks(self, chunks: List[Dict[str, Any]], embeddings: List[List[float]]):
-        """Store chunks with their embeddings"""
+        """Store chunks with their embeddings, including enhanced metadata"""
         points = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            # Base payload with legacy fields
+            payload = {
+                "chunk_id": i,
+                "text": chunk["text"],
+                "method": chunk["method"],
+                "start_char": chunk.get("start_char", 0),
+                "end_char": chunk.get("end_char", 0),
+                "chunk_size": chunk.get("chunk_size", 0),
+                "overlap": chunk.get("overlap", 0),
+                "document": chunk.get("document", ""),
+                "metadata": chunk.get("metadata", {}),
+            }
+            
+            # **NEW: Enhanced GraphRAG metadata fields**
+            # Add all the enhanced metadata fields if they exist
+            enhanced_fields = [
+                # Canonical identification
+                "doc_id", "doc_version", "source_type", "product_component", "confidentiality",
+                "ingested_at", "effective_from", "effective_to",
+                
+                # Chunk taxonomy
+                "chunk_type", "page", "bbox", "section_h1", "section_h2", "section_h3", "headings_path",
+                
+                # Deterministic metadata enrichment (mapping for compatibility)
+                "metric_terms", "doc_refs", "entities",
+                "mentioned_dates", "release_date", "author", "owner", "is_change_note",
+                "owners", "policy_tags",
+                
+                # Table-aware indexing
+                "table_id", "table_title", "row_headers", "col_headers", "units", "periods", "cell_samples",
+                
+                # Legacy compatibility
+                "lineage", "headers", "table_meta", "counts", "source"
+            ]
+            
+            # Add enhanced fields if they exist in the chunk
+            for field in enhanced_fields:
+                if field in chunk:
+                    payload[field] = chunk[field]
+            
             point = PointStruct(
                 id=str(uuid.uuid4()),
                 vector=embedding,
-                payload={
-                    "chunk_id": i,
-                    "text": chunk["text"],
-                    "method": chunk["method"],
-                    "start_char": chunk.get("start_char", 0),
-                    "end_char": chunk.get("end_char", 0),
-                    "chunk_size": chunk.get("chunk_size", 0),
-                    "overlap": chunk.get("overlap", 0),
-                    "document": chunk.get("document", ""),
-                    "metadata": chunk.get("metadata", {}),
-                }
+                payload=payload
             )
             points.append(point)
         

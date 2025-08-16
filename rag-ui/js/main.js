@@ -6,6 +6,7 @@ let conversationHistory = [];
 // DOM Elements
 const queryForm = document.getElementById('queryForm');
 const queryInput = document.getElementById('queryInput');
+const chunkTypeSelect = document.getElementById('chunkTypeSelect');
 const searchBtn = document.getElementById('searchBtn');
 const historyBtn = document.getElementById('historyBtn');
 const answerContent = document.getElementById('answerContent');
@@ -47,6 +48,7 @@ async function handleQuerySubmit(e) {
     if (isProcessing) return;
     
     const query = queryInput.value.trim();
+    const chunkType = chunkTypeSelect.value;
     if (!query) {
         showError('Please enter a query');
         return;
@@ -56,7 +58,7 @@ async function handleQuerySubmit(e) {
     startProcessing();
     
     try {
-        await processQuery(query);
+        await processQuery(query, chunkType);
     } catch (error) {
         handleError(error);
     } finally {
@@ -102,7 +104,7 @@ function clearResults() {
 }
 
 // Process query and stream results
-async function processQuery(query) {
+async function processQuery(query, chunkType = 'layout-aware') {
     try {
         // Start streaming logs
         const logStream = await fetch('/api/query', {
@@ -110,7 +112,7 @@ async function processQuery(query) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ query: query })
+            body: JSON.stringify({ query: query, chunk_type: chunkType })
         });
 
         if (!logStream.ok) {
