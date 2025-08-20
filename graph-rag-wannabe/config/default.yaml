@@ -1,0 +1,60 @@
+# Graph RAG Wannabe Configuration
+# This config removes hardcoded values for production use
+
+# Intent Classification Patterns
+intent_patterns:
+  explain: ["why", "how", "cause", "reason", "explain", "behind", "factor"]
+  lookup: ["what is", "define", "definition", "meaning", "explain what"]
+  relationship: ["compare", "vs", "versus", "between", "difference", "contrast"]
+  numeric_evidence: ["table", "data", "number", "revenue", "profit", "amount", "value"]
+
+# Confidence Thresholds (learnable)
+thresholds:
+  quick_classify_confidence: 0.8
+  fallback_confidence: 0.6
+  performance_warning_time: 5.0
+  cache_efficiency_threshold: 0.3
+  min_query_length: 3
+  max_query_length: 200
+
+# Search Parameters (adaptive)
+search_limits:
+  speed_mode:
+    hop_1_k: 30
+    hop_2_k: 20
+  quality_mode:
+    hop_1_k: 100
+    hop_2_k: 50
+  default_mode:
+    hop_1_k: 50
+    hop_2_k: 30
+
+# Signal Extraction Boost Factors
+signal_boost:
+  metric_terms: 2.5
+  doc_refs: 2.0
+  mentioned_dates: 1.8
+  entities: 1.5
+  versions: 1.3
+
+# Metadata Field Mappings (configurable per dataset)
+metadata_fields:
+  temporal: "mentioned_dates"
+  financial: "metric_terms" 
+  references: "doc_refs"
+  entities: "entities"
+  versions: "release_versions"
+
+# LLM Settings
+llm:
+  model: "gpt-4o-mini"
+  temperature: 0.1
+  max_tokens: 100
+  timeout: 30
+
+# Performance Optimizations  
+performance:
+  enable_caching: true
+  cache_size_limit: 1000
+  enable_quick_classify: true
+  log_level: "INFO"

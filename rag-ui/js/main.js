@@ -101,6 +101,12 @@ function clearResults() {
     answerContent.innerHTML = '';
     resetMetrics();
     sourcesContent.innerHTML = '<div class="empty-state">No sources available</div>';
+    
+    // Clear hop journey section if it exists
+    const hopSection = document.getElementById('hopJourneySection');
+    if (hopSection) {
+        hopSection.remove();
+    }
 }
 
 // Process query and stream results
@@ -174,6 +180,19 @@ async function processQuery(query, chunkType = 'layout-aware') {
 
 // Append log message
 function appendLog(message) {
+    // Check if this is a hop journey message
+    if (message.includes('🛤️  2-HOP JOURNEY:')) {
+        // Add to logs
+        const finalMessage = message.includes('[') && message.includes(']') ? 
+            message : `[${new Date().toLocaleTimeString()}] ${message}`;
+        logsContent.textContent += `${finalMessage}\n`;
+        logsContent.scrollTop = logsContent.scrollHeight;
+        
+        // Also display in the hop journey section
+        displayHopJourney(message);
+        return;
+    }
+    
     // Add timestamp only if message doesn't already have one
     const finalMessage = message.includes('[') && message.includes(']') ? 
         message : `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -192,10 +211,82 @@ function displayResults(result) {
     answerContent.textContent = (q ? `Q: ${q}\n\n` : '') + a;
     
     // Display metrics
-    displayMetrics(timing, resources, llm_response.tokens_used);
+    displayMetrics(timing, resources, result.tokens_used || llm_response.tokens_used || 0);
     
     // Display sources
     displaySources(retrieved_chunks);
+}
+
+// Display hop journey in a dedicated section
+function displayHopJourney(message) {
+    // Get or create hop journey section
+    let hopSection = document.getElementById('hopJourneySection');
+    if (!hopSection) {
+        // Create the section after the answer content
+        hopSection = document.createElement('div');
+        hopSection.id = 'hopJourneySection';
+        hopSection.className = 'hop-journey-section';
+        hopSection.innerHTML = `
+            <div class="hop-journey-header">
+                <h3>Hop Journey</h3>
+            </div>
+            <div class="hop-journey-content" id="hopJourneyContent"></div>
+        `;
+        
+        // Insert after answer content but before thinking section
+        const answerCard = document.querySelector('.answer-card');
+        const thinkingSection = document.getElementById('thinkingSection');
+        answerCard.insertBefore(hopSection, thinkingSection);
+    }
+    
+    const hopContent = document.getElementById('hopJourneyContent');
+    
+    // Parse the hop journey message
+    // Expected format: "🛤️  2-HOP JOURNEY:\n🔍 Query → 🎯 method → 🌱 hop1 → 🔄 hop2 → 🔧 final chunks"
+    const lines = message.split('\n');
+    if (lines.length >= 2) {
+        const journeyLine = lines[1];
+        // Extract the method and numbers
+        const parts = journeyLine.split(' → ');
+        if (parts.length >= 5) {
+            const method = parts[1].replace('🎯 ', '');
+            const hop1 = parts[2].replace('🌱 ', '');
+            const hop2 = parts[3].replace('🔄 ', '');
+            const final = parts[4].replace('🔧 ', '').replace(' chunks', '');
+            
+            hopContent.innerHTML = `
+                <div class="hop-journey-flow">
+                    <div class="hop-step">
+                        <div class="hop-icon">🔍</div>
+                        <div class="hop-label">Query</div>
+                    </div>
+                    <div class="hop-arrow">→</div>
+                    <div class="hop-step">
+                        <div class="hop-icon">🎯</div>
+                        <div class="hop-label">${method}</div>
+                    </div>
+                    <div class="hop-arrow">→</div>
+                    <div class="hop-step">
+                        <div class="hop-icon">🌱</div>
+                        <div class="hop-label">Hop 1</div>
+                        <div class="hop-count">${hop1}</div>
+                    </div>
+                    <div class="hop-arrow">→</div>
+                    <div class="hop-step">
+                        <div class="hop-icon">🔄</div>
+                        <div class="hop-label">Hop 2</div>
+                        <div class="hop-count">${hop2}</div>
+                    </div>
+                    <div class="hop-arrow">→</div>
+                    <div class="hop-step">
+                        <div class="hop-icon">🔧</div>
+                        <div class="hop-label">Final</div>
+                        <div class="hop-count">${final}</div>
+                    </div>
+                </div>
+            `;
+        }
+    }
 }
 
 // Display metrics
@@ -399,8 +490,49 @@ function generateChunkHtml(chunks, prefix = '') {
         // Location/structure fields
         if (payload.section_title) metadataTags.push(payload.section_title);
         if (payload.page_number) metadataTags.push(`page ${payload.page_number}`);
+        if (payload.page) metadataTags.push(`page ${payload.page}`);
         if (payload.start_char !== undefined && payload.end_char !== undefined) {
             metadataTags.push(`chars ${payload.start_char}-${payload.end_char}`);
+        }
+        
+        // Hierarchical structure
+        if (payload.section_h1) metadataTags.push(`h1: ${payload.section_h1}`);
+        if (payload.section_h2) metadataTags.push(`h2: ${payload.section_h2}`);
+        if (payload.section_h3) metadataTags.push(`h3: ${payload.section_h3}`);
+        if (payload.headings_path) metadataTags.push(`path: ${payload.headings_path}`);
+        
+        // Business metadata
+        if (payload.metric_terms && payload.metric_terms.length > 0) {
+            metadataTags.push(`metrics: ${payload.metric_terms.join(', ')}`);
+        }
+        if (payload.entities && payload.entities.length > 0) {
+            metadataTags.push(`entities: ${payload.entities.join(', ')}`);
+        }
+        if (payload.doc_refs && payload.doc_refs.length > 0) {
+            metadataTags.push(`refs: ${payload.doc_refs.join(', ')}`);
+        }
+        if (payload.mentioned_dates && payload.mentioned_dates.length > 0) {
+            metadataTags.push(`dates: ${payload.mentioned_dates.join(', ')}`);
+        }
+        if (payload.policy_tags && payload.policy_tags.length > 0) {
+            metadataTags.push(`policies: ${payload.policy_tags.join(', ')}`);
+        }
+        if (payload.is_change_note) metadataTags.push('change note');
+        
+        // Table-specific metadata
+        if (payload.table_id) metadataTags.push(`table: ${payload.table_id}`);
+        if (payload.table_title) metadataTags.push(`title: ${payload.table_title}`);
+        if (payload.row_headers && payload.row_headers.length > 0) {
+            metadataTags.push(`rows: ${payload.row_headers.join(', ')}`);
+        }
+        if (payload.col_headers && payload.col_headers.length > 0) {
+            metadataTags.push(`cols: ${payload.col_headers.join(', ')}`);
+        }
+        if (payload.units && payload.units.length > 0) {
+            metadataTags.push(`units: ${payload.units.join(', ')}`);
+        }
+        if (payload.periods && payload.periods.length > 0) {
+            metadataTags.push(`periods: ${payload.periods.join(', ')}`);
         }
         
         // Chunk metadata

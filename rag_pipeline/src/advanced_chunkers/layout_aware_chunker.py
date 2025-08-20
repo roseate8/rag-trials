@@ -58,8 +58,65 @@ def generate_stable_doc_id(file_path: str, doc_name: Optional[str] = None) -> st
     return re.sub(r'_+', '_', doc_id).strip('_')
 
 
+def extract_folder_hierarchy(file_path: str) -> Dict[str, Any]:
+    """
+    Extract folder hierarchy from file path for any level of nesting.
+    
+    Examples:
+        input/doc.html -> {"folder_path": [], "folder_hierarchy": "", "depth": 0}
+        input/reports/doc.html -> {"folder_path": ["reports"], "folder_hierarchy": "reports", "depth": 1}
+        input/a/b/c/d/doc.html -> {"folder_path": ["a","b","c","d"], "folder_hierarchy": "a/b/c/d", "depth": 4}
+    """
+    # Normalize path separators
+    normalized_path = file_path.replace('\\', '/')
+    
+    # Extract file name
+    file_name = os.path.basename(normalized_path)
+    
+    # Get directory path relative to input/
+    dir_path = os.path.dirname(normalized_path)
+    
+    # Find the input directory and extract everything after it
+    folder_path = []
+    relative_path = normalized_path
+    
+    # Split path into components
+    path_parts = [part for part in dir_path.split('/') if part]
+    
+    # Find 'input' in the path and take everything after it
+    input_index = -1
+    for i, part in enumerate(path_parts):
+        if part == 'input':
+            input_index = i
+            break
+    
+    if input_index >= 0 and input_index < len(path_parts) - 1:
+        # Extract folders after 'input/'
+        folder_path = path_parts[input_index + 1:]
+        relative_path = '/'.join(folder_path + [file_name]) if folder_path else file_name
+    elif input_index >= 0:
+        # File is directly in input/ folder
+        folder_path = []
+        relative_path = file_name
+    else:
+        # 'input' not found in path - use entire directory structure
+        folder_path = path_parts
+        relative_path = normalized_path
+    
+    # Create hierarchy string
+    folder_hierarchy = '/'.join(folder_path) if folder_path else ""
+    
+    return {
+        "folder_path": folder_path,
+        "folder_hierarchy": folder_hierarchy,
+        "file_name": file_name,
+        "relative_path": relative_path,
+        "folder_depth": len(folder_path)
+    }
+
+
 def create_headings_path(lineage: Dict[str, Any]) -> str:
-    """Create hierarchical headings path like 'Company > MD&A > Revenue'."""
+    """Create hierarchical headings path like 'Title > Section > Subsection'."""
     path_parts = []
     if lineage.get("title_text"):
         path_parts.append(lineage["title_text"])
@@ -170,9 +227,61 @@ class MetadataExtractor:
         return list(set(refs))
     
     def _extract_entities(self, text: str) -> List[str]:
-        """Extract entities (products) from controlled vocabulary."""
-        return [product for product in self.controlled_vocab.get("products", []) 
-                if product in text]
+        """Extract entities semantically and from controlled vocabulary."""
+        entities = []
+        
+        # 1. Semantic extraction of product names using patterns
+        semantic_entities = self._extract_semantic_entities(text)
+        entities.extend(semantic_entities)
+        
+        # 2. Controlled vocabulary (if provided)
+        text_lower = text.lower()
+        for product in self.controlled_vocab.get("products", []):
+            if product.lower() in text_lower and product not in entities:
+                entities.append(product)
+        
+        return list(set(entities))  # Remove duplicates
+    
+    def _extract_semantic_entities(self, text: str) -> List[str]:
+        """Extract product names and entities semantically from context."""
+        entities = []
+        
+        # Product name patterns (semantic detection)
+        product_patterns = [
+            # Product version patterns: "ProductName v1.2", "Product 2.0"  
+            r'\b([A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*)*)\s+(?:v\d+\.\d+|\d+\.\d+|version\s+\d+)\b',
+            # Branded products: "DataAnalytics solution", "CloudServices platform"
+            r'\b([A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*)*)\s+(?:solution|platform|product|service|system|suite)\b',
+            # Product launches: "introducing SecuritySuite", "announcing DataPlatform"  
+            r'\b(?:introducing|announcing|launching|releasing)\s+(?:the\s+)?(?:new\s+)?([A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*)*)\b',
+            # Product with features: "SearchEngine offers", "Analytics provides"
+            r'\b([A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*)*)\s+(?:offers|provides|enables|supports|includes|delivers)\b',
+            # Capitalized compound words: "DataAnalytics", "CloudServices"  
+            r'\b([A-Z][a-zA-Z]*[A-Z][a-zA-Z]*)\b',
+            # Our/The product pattern: "our SearchPlatform", "the new SecurityTool"
+            r'\b(?:our|the)\s+(?:new\s+)?([A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*)*)\b'
+        ]
+        
+        for pattern in product_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                match = match.strip()
+                # Filter out common words, single letters, and generic terms
+                common_words = {
+                    'the', 'our', 'this', 'that', 'new', 'old', 'first', 'last', 'are', 'and', 'for', 'all',
+                    'system', 'product', 'solution', 'platform', 'service', 'customer', 'customers', 'enterprise',
+                    'business', 'data', 'user', 'users', 'team', 'company', 'market', 'markets', 'time', 'now',
+                    'version', 'latest', 'recent', 'enhanced', 'improved', 'advanced', 'comprehensive', 'better'
+                }
+                if (len(match) > 3 and 
+                    match.lower() not in common_words and
+                    len(match.split()) <= 2 and  # Max 2 words for product names
+                    match[0].isupper() and  # Must start with capital
+                    not match.lower().endswith('ing') and  # Filter out gerunds
+                    not match.lower().endswith('ed')):  # Filter out past participles
+                    entities.append(match)
+        
+        return entities
     
     def _extract_dates(self, text: str) -> List[str]:
         """Extract date mentions."""
@@ -186,19 +295,90 @@ class MetadataExtractor:
         return any(pattern.search(text) for pattern in self.change_patterns)
     
     def _extract_policy_tags(self, text: str) -> List[str]:
-        """Extract policy/compliance tags."""
+        """Extract policy/compliance tags and semantic action indicators."""
         text_lower = text.lower()
         tags = []
         
-        # From controlled vocabulary
+        # 1. Semantic detection of strategic elements
+        semantic_tags = self._extract_semantic_policy_tags(text)
+        tags.extend(semantic_tags)
+        
+        # 2. Controlled vocabulary (if provided)
         for tag in self.controlled_vocab.get("policy_tags", []):
-            if tag.lower() in text_lower:
+            if tag.lower() in text_lower and tag not in tags:
                 tags.append(tag)
         
-        # No hardcoded heuristics - only use controlled vocabulary
-        # All policy detection must be configured externally
-        
         return list(set(tags))
+    
+    def _extract_semantic_policy_tags(self, text: str) -> List[str]:
+        """Extract policy and strategic elements semantically."""
+        tags = []
+        text_lower = text.lower()
+        
+        # Decision indicators
+        decision_patterns = [
+            r'\b(?:decided|decision|determined|concluded|resolved|chose|selected)\b',
+            r'\b(?:board\s+(?:decided|approved)|management\s+(?:decided|approved))\b',
+            r'\b(?:we\s+(?:decided|chose|determined|resolved))\b'
+        ]
+        
+        # Update/Change indicators  
+        update_patterns = [
+            r'\b(?:updated|upgraded|improved|enhanced|modified|changed|revised)\b',
+            r'\b(?:new\s+(?:version|release|update|feature))\b',
+            r'\b(?:latest\s+(?:version|release|update))\b'
+        ]
+        
+        # Feature/Product indicators
+        feature_patterns = [
+            r'\b(?:feature|functionality|capability|enhancement|improvement)\b',
+            r'\b(?:introduced|launched|released|announced|unveiled)\b',
+            r'\b(?:new\s+(?:feature|product|service|offering))\b'
+        ]
+        
+        # Initiative/Strategy indicators
+        initiative_patterns = [
+            r'\b(?:initiative|strategy|strategic|roadmap|plan|goal|objective)\b',
+            r'\b(?:investing\s+in|focusing\s+on|prioritizing|emphasizing)\b',
+            r'\b(?:direction|vision|mission|commitment|approach)\b'
+        ]
+        
+        # Factor/Impact indicators
+        factor_patterns = [
+            r'\b(?:factors?\s+(?:affecting|influencing|impacting))\b',
+            r'\b(?:due\s+to|because\s+of|as\s+a\s+result\s+of|driven\s+by)\b',
+            r'\b(?:impact|effect|influence|outcome|consequence)\b'
+        ]
+        
+        # Check each pattern category
+        pattern_categories = [
+            (decision_patterns, "decision"),
+            (update_patterns, "update"),  
+            (feature_patterns, "feature"),
+            (initiative_patterns, "initiative"),
+            (factor_patterns, "factor")
+        ]
+        
+        for patterns, tag_name in pattern_categories:
+            for pattern in patterns:
+                if re.search(pattern, text_lower):
+                    tags.append(tag_name)
+                    break  # Only add tag once per category
+        
+        # Additional contextual tags
+        if re.search(r'\b(?:quarterly|annual|monthly)\s+(?:results|report|review)\b', text_lower):
+            tags.append("periodic_review")
+        
+        if re.search(r'\b(?:risk|challenge|issue|problem|concern)\b', text_lower):
+            tags.append("risk_factor")
+        
+        if re.search(r'\b(?:opportunity|growth|expansion|market)\b', text_lower):
+            tags.append("growth_opportunity")
+        
+        if re.search(r'\b(?:customer|client|user)\s+(?:feedback|satisfaction|experience)\b', text_lower):
+            tags.append("customer_insight")
+        
+        return tags
     
     def extract_table_metadata(self, table_data: Dict[str, Any], table_text: str) -> Dict[str, Any]:
         """Extract table-specific metadata for enhanced indexing."""
@@ -296,8 +476,9 @@ class EnhancedChunk:
     
     # Chunk identification  
     chunk_id: str = ""  # UUID for internal tracking
-    chunk_type: str = "paragraph"  # paragraph | table | kv | figure_caption
+    chunk_type: str = "paragraph"  # paragraph | table | list (removed kv)
     method: str = "layout_aware_chunking"
+    source_format: str = ""  # html, md, json
     
     # Spatial and structural metadata
     page: Optional[int] = None
@@ -306,6 +487,13 @@ class EnhancedChunk:
     section_h2: Optional[str] = None
     section_h3: Optional[str] = None
     headings_path: str = ""
+    
+    # Folder hierarchy metadata (supports arbitrary nesting depth)
+    folder_path: List[str] = field(default_factory=list)  # ["folder 2", "folder 3", "investor reports"]
+    folder_hierarchy: str = ""  # "folder 2/folder 3/investor reports"
+    file_name: str = ""  # "document.html"
+    relative_path: str = ""  # "folder 2/folder 3/investor reports/document.html"
+    folder_depth: int = 0  # Number of nested folders (3 in above example)
     
     # Deterministic metadata enrichment
     metric_terms: List[str] = field(default_factory=list)
@@ -376,6 +564,7 @@ class LayoutAwareChunker:
         # Document metadata
         self.doc_name = doc_name
         self.doc_version = doc_version
+        self.doc_id = f"{doc_name}_{doc_version}" if doc_name else "document_v1"
         self.source_type = source_type
         self.product_component = product_component
         self.confidentiality = confidentiality
@@ -391,6 +580,40 @@ class LayoutAwareChunker:
                 logger.info("LLM table classifier enabled")
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM classifier: {e}")
+        
+        # Comprehensive metrics tracking
+        self.metrics = {
+            "timing": {
+                "chunking_start": None,
+                "chunking_end": None,
+                "embedding_start": None,
+                "embedding_end": None,
+                "storage_start": None,
+                "storage_end": None
+            },
+            "resources": {
+                "memory_start": None,
+                "memory_peak": None,
+                "memory_end": None,
+                "cpu_time_start": None,
+                "cpu_time_end": None
+            },
+            "tokens": {
+                "by_method": {},
+                "total_used": 0,
+                "total_calls": 0
+            },
+            "chunks": {
+                "total_created": 0,
+                "by_type": {},
+                "average_size": 0
+            },
+            "file_info": {
+                "size_bytes": 0,
+                "format": "",
+                "name": ""
+            }
+        }
         
         # Set up table storage directory
         if external_table_dir is None:
@@ -429,20 +652,94 @@ class LayoutAwareChunker:
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Main entry point for enhanced layout-aware document chunking.
+        
+        Supports: markdown, html, json
+        
+        File Format Behavior:
+        - markdown: Process .md file, optionally load corresponding .json for enrichment
+        - html: Process .html file independently (no JSON dependency)  
+        - json: Process .json file directly (extract tables and structured content)
             
         Returns:
             (chunks, section_index) - enhanced chunks with rich metadata
         """
-        if source_format != "markdown":
-            raise ValueError("Only 'markdown' source format is supported")
+        if source_format not in ["markdown", "html", "json"]:
+            raise ValueError("Only 'markdown', 'html', and 'json' source formats are supported")
+            
+        # Start comprehensive metrics tracking
+        self._start_metrics_tracking(file_path, source_format)
             
         # Generate stable document ID
         self.doc_id = generate_stable_doc_id(file_path, self.doc_name)
         
-        # Load JSON data for enrichment
-        json_data = self._load_json_data(file_path)
+        if source_format == "html":
+            # Import and use HTML processor module
+            from .html_processor import HTMLProcessor
+            html_processor = HTMLProcessor(self)
+            result = html_processor.process_html_document(file_path)
+        elif source_format == "json":
+            # Process JSON file directly
+            result = self._process_json_only_document(file_path)
+        else:  # markdown
+            # Load JSON data for enrichment (optional)
+            json_data = self._load_json_data(file_path)
+            result = self._process_document(file_path, json_data)
         
-        return self._process_document(file_path, json_data)
+        # Apply post-processing fixes to improve chunk quality
+        original_count = len(result[0])
+        try:
+            from .chunker_fixes import apply_all_fixes
+            result = (apply_all_fixes(result[0]), result[1])
+            logger.info(f"Applied post-processing fixes: {original_count} -> {len(result[0])} chunks")
+        except Exception as e:
+            logger.warning(f"Post-processing fixes failed: {e}")
+        
+        # Complete metrics tracking and log to unified logger
+        self._complete_chunking_metrics(result[0])
+        self._log_to_unified_logger(file_path, result[0])
+        
+        return result
+    
+    def _process_json_only_document(self, json_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Process JSON file directly without markdown companion.
+        Extracts tables and structured content from JSON document structure.
+        """
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                json_data = json.load(f)
+        except Exception as e:
+            logger.error(f"Could not load JSON file {json_path}: {e}")
+            return [], {}
+        
+        # Build JSON index for content extraction
+        json_index = self._build_json_index(json_data)
+        
+        # Extract table chunks from JSON structure
+        table_chunks = self._create_table_chunks(json_index, json_path)
+        
+        # Extract document structure from Table of Contents if present
+        self._extract_document_structure_from_toc(table_chunks)
+        
+        # For JSON-only files, we primarily extract structured content (tables)
+        # Text content would need additional processing if available in JSON structure
+        all_chunks = table_chunks
+        
+        # Build section index
+        section_index = self._build_section_index(all_chunks)
+        
+        # Convert to output format and add sequential chunk_id for compatibility
+        output_chunks = []
+        for i, chunk in enumerate(all_chunks):
+            chunk_dict = chunk.__dict__.copy()
+            chunk_dict["chunk_id"] = i
+            chunk_dict["uuid"] = chunk.chunk_id
+            output_chunks.append(chunk_dict)
+        
+        logger.info(f"JSON-only chunking complete: {len(output_chunks)} chunks")
+        logger.info(f"Document: {self.doc_id} v{self.doc_version} ({self.source_type})")
+        
+        return output_chunks, section_index
     
     def _load_json_data(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Load corresponding JSON data for enrichment."""
@@ -802,6 +1099,9 @@ class LayoutAwareChunker:
             metadata={"enhanced_layout_aware": True}
         )
         
+        # Add folder hierarchy metadata
+        self._enrich_folder_hierarchy(chunk, md_path)
+        
         # Add spatial metadata
         self._enrich_spatial_metadata(chunk, json_index)
         
@@ -813,6 +1113,181 @@ class LayoutAwareChunker:
         self._enrich_chunk_with_toc_context(chunk)
         
         return chunk
+    
+    def _enrich_folder_hierarchy(self, chunk: EnhancedChunk, file_path: str) -> None:
+        """
+        Enrich chunk with folder hierarchy metadata for arbitrary nesting depth.
+        Extracts and preserves the complete folder structure from the file path.
+        """
+        hierarchy_info = extract_folder_hierarchy(file_path)
+        
+        # Set folder hierarchy fields
+        chunk.folder_path = hierarchy_info["folder_path"]
+        chunk.folder_hierarchy = hierarchy_info["folder_hierarchy"]
+        chunk.file_name = hierarchy_info["file_name"]
+        chunk.relative_path = hierarchy_info["relative_path"]
+        chunk.folder_depth = hierarchy_info["folder_depth"]
+    
+    def _start_metrics_tracking(self, file_path: str, source_format: str) -> None:
+        """Initialize comprehensive metrics tracking for chunking process."""
+        import time
+        import psutil
+        import os
+        
+        # Timing metrics
+        self.metrics["timing"]["chunking_start"] = time.time()
+        
+        # Resource metrics
+        process = psutil.Process()
+        self.metrics["resources"]["memory_start"] = process.memory_info().rss / (1024 * 1024)  # MB
+        self.metrics["resources"]["cpu_time_start"] = process.cpu_times().user + process.cpu_times().system
+        
+        # File info metrics
+        if os.path.exists(file_path):
+            self.metrics["file_info"]["size_bytes"] = os.path.getsize(file_path)
+            self.metrics["file_info"]["size_mb"] = self.metrics["file_info"]["size_bytes"] / (1024 * 1024)
+        
+        self.metrics["file_info"]["format"] = source_format
+        self.metrics["file_info"]["name"] = os.path.basename(file_path)
+        self.metrics["file_info"]["path"] = file_path
+        
+        # Reset LLM token tracking
+        if self.llm_classifier:
+            self.llm_classifier.reset_token_stats()
+        
+        logger.info(f"📊 Started metrics tracking for: {self.metrics['file_info']['name']}")
+    
+    def _complete_chunking_metrics(self, chunks: List[Dict[str, Any]]) -> None:
+        """Complete chunking metrics tracking and calculate final statistics."""
+        import time
+        import psutil
+        
+        # Complete timing
+        self.metrics["timing"]["chunking_end"] = time.time()
+        
+        # Complete resource tracking
+        process = psutil.Process()
+        self.metrics["resources"]["memory_end"] = process.memory_info().rss / (1024 * 1024)  # MB
+        self.metrics["resources"]["memory_peak"] = process.memory_info().peak_wss / (1024 * 1024) if hasattr(process.memory_info(), 'peak_wss') else self.metrics["resources"]["memory_end"]  # MB
+        self.metrics["resources"]["cpu_time_end"] = process.cpu_times().user + process.cpu_times().system
+        
+        # Calculate derived metrics
+        self.metrics["timing"]["chunking_duration"] = self.metrics["timing"]["chunking_end"] - self.metrics["timing"]["chunking_start"]
+        self.metrics["resources"]["memory_used"] = self.metrics["resources"]["memory_end"] - self.metrics["resources"]["memory_start"]
+        self.metrics["resources"]["cpu_time_used"] = self.metrics["resources"]["cpu_time_end"] - self.metrics["resources"]["cpu_time_start"]
+        
+        # Chunk metrics
+        self.metrics["chunks"]["total_created"] = len(chunks)
+        
+        # Count by type
+        for chunk in chunks:
+            chunk_type = chunk.get('chunk_type', 'unknown')
+            self.metrics["chunks"]["by_type"][chunk_type] = self.metrics["chunks"]["by_type"].get(chunk_type, 0) + 1
+        
+        # Calculate average chunk size
+        total_text_length = sum(len(chunk.get('text', '')) for chunk in chunks)
+        self.metrics["chunks"]["average_size"] = total_text_length / len(chunks) if chunks else 0
+        
+        # Token metrics
+        if self.llm_classifier:
+            token_stats = self.llm_classifier.get_token_usage_stats()
+            self.metrics["tokens"]["total_used"] = token_stats.get("total_tokens_used", 0)
+            self.metrics["tokens"]["total_calls"] = token_stats.get("total_calls_made", 0)
+            self.metrics["tokens"]["average_per_call"] = token_stats.get("average_tokens_per_call", 0)
+            self.metrics["tokens"]["by_method"]["table_classification"] = token_stats.get("total_tokens_used", 0)
+        else:
+            self.metrics["tokens"]["total_used"] = 0
+            self.metrics["tokens"]["total_calls"] = 0
+            self.metrics["tokens"]["average_per_call"] = 0
+        
+        # Performance metrics
+        if self.metrics["timing"]["chunking_duration"] > 0:
+            self.metrics["performance"] = {
+                "chunks_per_second": len(chunks) / self.metrics["timing"]["chunking_duration"],
+                "mb_per_second": self.metrics["file_info"]["size_mb"] / self.metrics["timing"]["chunking_duration"],
+                "tokens_per_chunk": self.metrics["tokens"]["total_used"] / len(chunks) if chunks else 0
+            }
+    
+    def _log_to_unified_logger(self, file_path: str, chunks: List[Dict[str, Any]]) -> None:
+        """Log chunking metrics to unified logger."""
+        from .unified_logger import get_unified_logger
+        
+        # Get unified logger instance
+        unified_logger = get_unified_logger()
+        
+        # Calculate file metrics
+        file_size = self.metrics.get("file_info", {}).get("size_bytes", 0)
+        processing_time = self.metrics.get("timing", {}).get("chunking_duration", 0)
+        tokens_used = self.metrics.get("tokens", {}).get("total_used", 0)
+        tokens_by_method = self.metrics.get("tokens", {}).get("by_method", {})
+        source_format = self.metrics.get("file_info", {}).get("format", "unknown")
+        
+        # Log to unified logger
+        unified_logger.log_file_processing(
+            file_path=file_path,
+            chunks_created=len(chunks),
+            processing_time=processing_time,
+            tokens_used=tokens_used,
+            tokens_by_method=tokens_by_method,
+            file_size_bytes=file_size,
+            source_format=source_format
+        )
+    
+    # Removed: _generate_markdown_summary() - now using unified logger
+    
+    def _log_chunking_summary(self, file_path: str, source_format: str, chunks: List[Dict[str, Any]]) -> None:
+        """
+        Log comprehensive summary of chunking process including token usage.
+        """
+        import time
+        import os
+        
+        # Calculate processing time
+        processing_time = time.time() - self.chunking_start_time if self.chunking_start_time else 0
+        
+        # Count chunk types
+        chunk_types = {}
+        for chunk in chunks:
+            chunk_type = chunk.get('chunk_type', 'unknown')
+            chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
+        
+        # Get LLM token usage stats
+        llm_stats = {"total_tokens_used": 0, "total_calls_made": 0, "average_tokens_per_call": 0}
+        if self.llm_classifier:
+            llm_stats = self.llm_classifier.get_token_usage_stats()
+        
+        # Calculate file size
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        file_size_mb = file_size / (1024 * 1024)
+        
+        # Log comprehensive summary
+        logger.info("🎯 CHUNKING PROCESS COMPLETE")
+        logger.info("=" * 60)
+        logger.info(f"📄 File: {os.path.basename(file_path)} ({file_size_mb:.2f} MB)")
+        logger.info(f"🔧 Format: {source_format}")
+        logger.info(f"⏱️  Processing time: {processing_time:.2f} seconds")
+        logger.info(f"📊 Total chunks created: {len(chunks)}")
+        
+        # Chunk type breakdown
+        for chunk_type, count in sorted(chunk_types.items()):
+            logger.info(f"   └─ {chunk_type}: {count} chunks")
+        
+        # LLM Token Usage Summary
+        logger.info(f"🤖 LLM TOKEN USAGE:")
+        logger.info(f"   └─ Total tokens used: {llm_stats['total_tokens_used']} tokens")
+        logger.info(f"   └─ LLM calls made: {llm_stats['total_calls_made']} calls")
+        logger.info(f"   └─ Average tokens per call: {llm_stats['average_tokens_per_call']}")
+        
+        # Efficiency metrics
+        if processing_time > 0:
+            chunks_per_second = len(chunks) / processing_time
+            logger.info(f"⚡ Performance: {chunks_per_second:.1f} chunks/second")
+        
+        if llm_stats['total_tokens_used'] > 0:
+            tokens_per_chunk = llm_stats['total_tokens_used'] / len(chunks)
+            logger.info(f"💰 Token efficiency: {tokens_per_chunk:.2f} tokens/chunk")
+        
+        logger.info("=" * 60)
     
     def _enrich_spatial_metadata(self, chunk: EnhancedChunk, json_index: Dict[str, Any]):
         """Add spatial metadata (page, bbox) from JSON index."""
@@ -995,7 +1470,7 @@ class LayoutAwareChunker:
                         cell_texts.append(cell["text"])
                     else:
                         cell_texts.append("")
-                lines.append(" | ".join(cell_texts))
+            lines.append(" | ".join(cell_texts))
         
         return "\n".join(lines)
     

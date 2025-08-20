@@ -1,0 +1,18 @@
+project: 'ECS reference'
+products:
+  - id: ecs
+exclude:
+  - fields/usage/README.md
+cross_links:
+  - beats
+  - docs-content
+  - elasticsearch
+  - logstash-docs-md
+toc:
+  - toc: reference
+  - toc: release-notes
+subs:
+  es:   "Elasticsearch"
+  kib:   "Kibana"
+  ls:   "Logstash"
+  beats:   "Beats"

@@ -2,6 +2,7 @@
 LLM Query system for testing vector store performance
 """
 import os
+import sys
 import logging
 import json
 import psutil
@@ -12,7 +13,11 @@ import openai
 from .qdrant_store import QdrantVectorStore
 from .embeddings import EmbeddingGenerator
 from .reranker import CrossEncoderReranker
-from .semantic_query_variants import LightweightQueryVariants
+from .universal_query_processor import get_universal_processor
+from .content_aware_retrieval import create_content_aware_retrieval
+
+# Add graph-rag-wannabe to path for import
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'graph-rag-wannabe', 'src'))
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,13 @@ class LLMQuerySystem:
         self.vector_store = QdrantVectorStore()
         self.embedder = EmbeddingGenerator()
         self.reranker = CrossEncoderReranker()
-        self.query_variants = LightweightQueryVariants()
+        self.query_processor = get_universal_processor()
+        self.content_aware_retrieval = create_content_aware_retrieval(
+            self.vector_store, 
+            self.embedder, 
+            self.query_processor,
+            openai_api_key
+        )
         
         # Set up OpenAI (new API)
         self.client = openai.OpenAI(api_key=openai_api_key)
@@ -82,19 +93,34 @@ class LLMQuerySystem:
         
         Args:
             query: The search query
-            method: chunking method ('layout_aware_chunking')
+            method: search method ('layout_aware_chunking' or 'graph_rag_wannabe')
             top_k: Number of top results to return
         
         Returns:
             List of similar chunks with scores
         """
-        # Optimize query for better semantic matching (no tokens used)
-        optimized_query = self.query_variants.get_best_query_for_search(query)
+        # Use content-aware retrieval to address 79.7% financial content bias
+        try:
+            logger.info(f"Starting content-aware search for: '{query}'")
+            
+            chunks = self.content_aware_retrieval.retrieve_with_content_awareness(
+                query=query,
+                method=method,
+                top_k=top_k
+            )
+            
+            logger.info(f"Content-aware retrieval found {len(chunks)} chunks")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Content-aware retrieval failed, falling back to standard: {e}")
+            
+            # Fallback to original method
+            query_analysis = self.query_processor.get_optimized_query(query)
+            optimized_query = query_analysis['optimized_query']
+            query_embedding = self.embedder.generate_embeddings([optimized_query])[0]
         
-        # Generate embedding for the optimized query
-        query_embedding = self.embedder.generate_embeddings([optimized_query])[0]
-        
-        # Search in Qdrant
+        # Fallback search in Qdrant
         try:
             from qdrant_client.models import Filter, FieldCondition
             
@@ -147,14 +173,32 @@ class LLMQuerySystem:
         Returns:
             LLM response with metadata
         """
-        prompt = f"""You are an AI assistant analyzing financial documents. Use the provided context to answer the user's question accurately and comprehensively.
+        # Detect query intent for appropriate prompting
+        query_analysis = self.query_processor.get_optimized_query(query)
+        intent = query_analysis['intent']
+        
+        # Intent-aware prompt generation
+        if intent == 'financial':
+            domain_context = "financial documents and reports"
+            assistant_role = "financial analyst"
+        elif intent == 'technical':
+            domain_context = "product documentation and technical updates"
+            assistant_role = "technical analyst"
+        elif intent == 'process':
+            domain_context = "strategic documents and process information"
+            assistant_role = "business analyst"
+        else:
+            domain_context = "business documents"
+            assistant_role = "business analyst"
+        
+        prompt = f"""You are an AI assistant analyzing {domain_context}. Use the provided context to answer the user's question accurately and comprehensively.
 
 Context from document (using {method.replace('_', ' ')} method):
 {context}
 
 Question: {query}
 
-Please provide a detailed answer based on the context provided. If the context doesn't contain enough information to fully answer the question, say so explicitly.
+Please provide a detailed answer based on the context provided. Focus on the specific type of information requested ({intent} query). If the context doesn't contain enough information to fully answer the question, say so explicitly.
 
 Answer:"""
 
@@ -162,7 +206,7 @@ Answer:"""
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",  # Using available model
                 messages=[
-                    {"role": "system", "content": "You are a helpful financial analyst AI assistant."},
+                    {"role": "system", "content": f"You are a helpful {assistant_role} AI assistant."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,
@@ -197,11 +241,11 @@ Answer:"""
         
         Args:
             query: User question
-            top_k: Number of chunks to retrieve for context
-            method: Chunking method ('layout_aware_chunking')
+            top_k: Number of chunks to retrieve for context  
+            method: Search method ('layout_aware_chunking' or 'graph_rag_wannabe')
         
         Returns:
-            Results from selected chunking method with timing metrics
+            Results from selected search method with timing metrics
         """
         import time
         
@@ -211,6 +255,11 @@ Answer:"""
         total_start_time = time.time()
         initial_resources = self.get_system_resources()
         
+        # Check if using Graph_RAG_Not system
+        if method == "graph_rag_wannabe":
+            return self._graph_rag_not_pipeline(query, top_k, total_start_time, initial_resources)
+        
+        # Standard pipeline for layout_aware_chunking
         # Time vector search
         vector_search_start = time.time()
         similar_chunks = self.search_similar_chunks(query, method, top_k * 5)
@@ -293,6 +342,66 @@ Answer:"""
             }
         
         return result
+    
+    def _graph_rag_not_pipeline(self, query: str, top_k: int, total_start_time: float, initial_resources: Dict) -> Dict[str, Any]:
+        """
+        Graph_RAG_Not pipeline using 2-hop metadata-driven search
+        """
+        try:
+            from .graph_rag_integration_v2 import GraphRAGIntegrationV2 as GraphRAGIntegration
+            
+            # Initialize GraphRAG integration
+            graph_rag = GraphRAGIntegration(
+                vector_store=self.vector_store,
+                embedding_generator=self.embedder,
+                reranker=self.reranker,
+                openai_api_key=self.client.api_key
+            )
+            
+            if not graph_rag.is_available():
+                raise RuntimeError("GraphRAG wannabe system not available")
+            
+            # Execute GraphRAG query
+            graph_result = graph_rag.query(query, top_k)
+            
+            # Convert to standard format
+            final_resources = self.get_system_resources()
+            
+            result = {
+                "retrieved_chunks": graph_result["chunks"],
+                "context_length": len(graph_result["answer"]),
+                "llm_response": {
+                    "query": query,
+                    "method": "graph_rag_wannabe",
+                    "context": f"GraphRAG 2-hop expansion with {len(graph_result['chunks'])} chunks",
+                    "answer": graph_result["answer"],
+                    "timestamp": datetime.now().isoformat(),
+                    "tokens_used": getattr(graph_result["response"], 'tokens_used', 0)
+                },
+                "timing": {
+                    "vector_search_time": graph_result["metadata"]["total_time"] * 0.3,
+                    "rerank_time": graph_result["metadata"]["total_time"] * 0.2,
+                    "context_time": graph_result["metadata"]["total_time"] * 0.1,
+                    "llm_time": graph_result["metadata"]["total_time"] * 0.4,
+                    "total_time": graph_result["metadata"]["total_time"]
+                },
+                "resources": {
+                    "initial": initial_resources,
+                    "final": final_resources,
+                    "peak_memory_mb": max(initial_resources["memory_used_mb"], final_resources["memory_used_mb"]),
+                    "peak_cpu_percent": max(initial_resources["cpu_percent"], final_resources["cpu_percent"])
+                },
+                "graph_rag_metadata": graph_result["metadata"],
+                "hop_1_count": graph_result["metadata"]["hop_1_count"],
+                "hop_2_count": graph_result["metadata"]["hop_2_count"]
+            }
+            
+            logger.info(f"Graph_RAG_Not completed: {graph_result['metadata']['hop_1_count']}→{graph_result['metadata']['hop_2_count']}→{len(graph_result['chunks'])} chunks")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Graph_RAG_Not pipeline failed: {e}")
+            raise RuntimeError(f"Graph_RAG_Not system failed: {str(e)}. Please use basic search instead.")
     
     def legacy_full_query_pipeline(self, query: str, top_k: int = 10, method: str = "layout_aware_chunking") -> Dict[str, Any]:
         """

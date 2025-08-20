@@ -71,6 +71,9 @@ class QdrantVectorStore:
                 # Chunk taxonomy
                 "chunk_type", "page", "bbox", "section_h1", "section_h2", "section_h3", "headings_path",
                 
+                # Folder hierarchy metadata (supports arbitrary nesting depth)
+                "folder_path", "folder_hierarchy", "file_name", "relative_path", "folder_depth",
+                
                 # Deterministic metadata enrichment (mapping for compatibility)
                 "metric_terms", "doc_refs", "entities",
                 "mentioned_dates", "release_date", "author", "owner", "is_change_note",

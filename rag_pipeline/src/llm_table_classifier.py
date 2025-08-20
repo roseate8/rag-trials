@@ -24,6 +24,17 @@ class LLMTableClassifier:
         self.client = openai.OpenAI(api_key=openai_api_key)
         self.total_tokens_used = 0
         self.total_calls_made = 0
+        
+        # Track tokens by method for detailed reporting
+        self.tokens_by_method = {
+            "table_classification": 0,
+            "table_title_generation": 0
+        }
+        self.calls_by_method = {
+            "table_classification": 0,
+            "table_title_generation": 0
+        }
+        
         logger.info("LLM Table Classifier initialized")
     
     def generate_table_title(self, table_data: Dict[str, Any], table_number: int) -> str:
@@ -44,26 +55,22 @@ class LLMTableClassifier:
         if not content_sample.strip():
             return f"Table {table_number}: Data Table"
         
-        # Create LLM prompt for table classification
-        classification_prompt = f"""Analyze this table content and generate a concise, descriptive title.
-
-Table content sample:
+        # Optimized LLM prompt for table classification (minimal tokens, high quality)
+        classification_prompt = f"""Table content:
 {content_sample}
 
-Rules:
-1. Generate a specific, descriptive title (e.g., "Earnings Per Share Statement", "Revenue by Product Segment")
-2. Keep it under 6 words
-3. Focus on what the table actually contains, not generic descriptions
-4. Use standard financial/business terminology when applicable
-5. If unclear, use "Financial Data Table" or "Business Metrics Table"
+Generate a descriptive title (max 5 words). Examples:
+- "Revenue by Quarter"
+- "Employee Count by Division" 
+- "Financial Performance Summary"
 
-Respond with ONLY the table title, no explanations."""
+Title:"""
 
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a financial document analyst that creates precise table titles."},
+                    {"role": "system", "content": "Generate concise table titles."},
                     {"role": "user", "content": classification_prompt}
                 ],
                 temperature=0.1,  # Low temperature for consistent results
@@ -72,10 +79,15 @@ Respond with ONLY the table title, no explanations."""
             
             title = response.choices[0].message.content.strip()
             
-            # Track token usage
+            # Track token usage by method
             tokens_used = response.usage.total_tokens
             self.total_tokens_used += tokens_used
             self.total_calls_made += 1
+            
+            # Track by specific method
+            method_name = "table_classification"
+            self.tokens_by_method[method_name] += tokens_used
+            self.calls_by_method[method_name] += 1
             
             # Clean up the title
             title = title.replace('"', '').replace("'", '')
@@ -143,12 +155,28 @@ Respond with ONLY the table title, no explanations."""
         
         return "\n".join(content_parts)
     
-    def get_token_usage_stats(self) -> Dict[str, int]:
-        """Get token usage statistics for table classification."""
+    def get_token_usage_stats(self) -> Dict[str, Any]:
+        """Get comprehensive token usage statistics for table classification."""
+        avg_tokens = self.total_tokens_used / max(1, self.total_calls_made)
         return {
             "total_tokens_used": self.total_tokens_used,
             "total_calls_made": self.total_calls_made,
-            "average_tokens_per_call": self.total_tokens_used // max(1, self.total_calls_made)
+            "average_tokens_per_call": round(avg_tokens, 2),
+            "tokens_by_method": self.tokens_by_method.copy(),
+            "calls_by_method": self.calls_by_method.copy()
+        }
+    
+    def reset_token_stats(self) -> None:
+        """Reset token usage statistics for new chunking session."""
+        self.total_tokens_used = 0
+        self.total_calls_made = 0
+        self.tokens_by_method = {
+            "table_classification": 0,
+            "table_title_generation": 0
+        }
+        self.calls_by_method = {
+            "table_classification": 0,
+            "table_title_generation": 0
         }
 
 

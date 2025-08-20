@@ -4,8 +4,8 @@ LLM Query Interface with Chunk Type Selection
 Your familiar interface, now enhanced with chunk type options.
 
 Usage:
-    python3 query.py "Your question here" [--chunk-type layout-aware|graph-rag|both]
-    python3 query.py "Your question here" [layout-aware|graph-rag]  # Simple format
+    python3 query.py "Your question here" [--chunk-type basic|graph_rag_not|both]
+    python3 query.py "Your question here" [basic|graph_rag_not]  # Simple format
 """
 
 import sys
@@ -18,7 +18,7 @@ from src.llm_query import LLMQuerySystem
 def parse_arguments():
     """Parse command line arguments with both simple and advanced formats"""
     # Handle simple format: python3 query.py "question" chunk-type
-    if len(sys.argv) >= 3 and sys.argv[-1] in ["layout-aware", "graph-rag"]:
+    if len(sys.argv) >= 3 and sys.argv[-1] in ["basic", "graph_rag_not"]:
         return {
             "query": " ".join(sys.argv[1:-1]),
             "chunk_type": sys.argv[-1],
@@ -33,8 +33,8 @@ def parse_arguments():
         epilog="""
 Examples:
   python3 query.py "Tell me about the EPS this year"
-  python3 query.py "What are the revenue figures?" graph-rag
-  python3 query.py "Show me iPhone sales" --chunk-type layout-aware
+  python3 query.py "What are the revenue figures?" graph_rag_not
+  python3 query.py "Show me iPhone sales" --chunk-type basic
   python3 query.py "Compare approaches" --chunk-type both
         """
     )
@@ -45,10 +45,10 @@ Examples:
     )
     
     parser.add_argument(
-        "--chunk-type",
-        choices=["layout-aware", "graph-rag", "both"],
-        default="layout-aware",
-        help="Type of chunks to use: layout-aware, graph-rag, or both (default: layout-aware)"
+        "--chunk-type", 
+        choices=["basic", "graph_rag_not", "both"],
+        default="basic",
+        help="Search method: basic (layout-aware chunks), graph_rag_not (2-hop metadata search), or both (default: basic)"
     )
     
     parser.add_argument(
@@ -150,12 +150,12 @@ def main():
         print("   or: python3 query.py \"Your question here\" [layout-aware|graph-rag]")
         print("\nExamples:")
         print("  python3 query.py \"Tell me about the EPS this year\"")
-        print("  python3 query.py \"What are the revenue figures?\" graph-rag")
-        print("  python3 query.py \"Show me iPhone sales\" --chunk-type layout-aware")
+        print("  python3 query.py \"What are the revenue figures?\" graph_rag_not")
+        print("  python3 query.py \"Show me iPhone sales\" --chunk-type basic")
         print("  python3 query.py \"Compare methods\" --chunk-type both")
-        print("\nChunk Types:")
-        print("  layout-aware: Uses layout-aware chunking (default)")
-        print("  graph-rag: Uses Graph-RAG enhanced chunking")
+        print("\nSearch Methods:")
+        print("  basic: Uses layout-aware chunking with vector search (default)")
+        print("  graph_rag_not: Uses 2-hop metadata-driven search (experimental)")
         print("  both: Compare both methods side-by-side")
         return
     
@@ -186,54 +186,65 @@ def main():
         
         # Map user-friendly names to method names
         method_map = {
-            "layout-aware": "layout_aware_chunking"
+            "basic": "layout_aware_chunking",
+            "graph_rag_not": "graph_rag_wannabe"
         }
         
         results = {}
         total_tokens = 0
         
-        if chunk_type == "layout-aware":
-            method = method_map["layout-aware"]
+        if chunk_type == "basic":
+            method = method_map["basic"]
             result = query_system.full_query_pipeline(query, top_k, method)
             results[method] = result
-            display_results(result, method, "Layout-Aware Chunking")
+            display_results(result, method, "Basic Search (Layout-Aware)")
             total_tokens += result["llm_response"]["tokens_used"]
             
-        elif chunk_type == "graph-rag":
-            method = method_map["graph-rag"]
-            result = query_system.full_query_pipeline(query, top_k, method)
-            results[method] = result
-            display_results(result, method, "Graph-RAG Chunking")
-            total_tokens += result["llm_response"]["tokens_used"]
+        elif chunk_type == "graph_rag_not":
+            method = method_map["graph_rag_not"]
+            try:
+                result = query_system.full_query_pipeline(query, top_k, method)
+                results[method] = result
+                display_results(result, method, "Graph_RAG_Not (2-Hop Search)")
+                total_tokens += result["llm_response"]["tokens_used"]
+            except Exception as e:
+                print(f"❌ Graph_RAG_Not failed: {e}")
+                print("💡 Please use 'basic' search method instead")
+                return
             
         elif chunk_type == "both":
             # Compare both methods
             print("🔀 Comparing both chunking methods...")
             
-            # Layout-aware results
-            layout_method = method_map["layout-aware"]
-            layout_result = query_system.full_query_pipeline(query, top_k, layout_method)
-            results[layout_method] = layout_result
-            display_results(layout_result, layout_method, "Layout-Aware Chunking")
-            total_tokens += layout_result["llm_response"]["tokens_used"]
+            # Basic search results
+            basic_method = method_map["basic"]
+            basic_result = query_system.full_query_pipeline(query, top_k, basic_method)
+            results[basic_method] = basic_result
+            display_results(basic_result, basic_method, "Basic Search (Layout-Aware)")
+            total_tokens += basic_result["llm_response"]["tokens_used"]
             
             print("\n" + "="*80)
             
-            # Graph-RAG results
-            graph_method = method_map["graph-rag"]
-            graph_result = query_system.full_query_pipeline(query, top_k, graph_method)
-            results[graph_method] = graph_result
-            display_results(graph_result, graph_method, "Graph-RAG Chunking")
-            total_tokens += graph_result["llm_response"]["tokens_used"]
+            # Graph_RAG_Not results
+            graph_method = method_map["graph_rag_not"]
+            try:
+                graph_result = query_system.full_query_pipeline(query, top_k, graph_method)
+                results[graph_method] = graph_result
+                display_results(graph_result, graph_method, "Graph_RAG_Not (2-Hop Search)")
+                total_tokens += graph_result["llm_response"]["tokens_used"]
+            except Exception as e:
+                print(f"❌ Graph_RAG_Not failed: {e}")
+                print("🔄 Comparison incomplete - Graph_RAG_Not system not available")
+                return
             
             # Comparison summary
             print("\n" + "="*80)
             print("📊 COMPARISON SUMMARY")
             print("-" * 30)
-            layout_chunks = len(layout_result["retrieved_chunks"])
+            basic_chunks = len(basic_result["retrieved_chunks"])
             graph_chunks = len(graph_result["retrieved_chunks"])
-            print(f"Layout-Aware: {layout_chunks} chunks, {layout_result['llm_response']['tokens_used']} tokens")
-            print(f"Graph-RAG: {graph_chunks} chunks, {graph_result['llm_response']['tokens_used']} tokens")
+            print(f"Basic Search: {basic_chunks} chunks, {basic_result['llm_response']['tokens_used']} tokens")
+            print(f"Graph_RAG_Not: {graph_chunks} chunks, {graph_result['llm_response']['tokens_used']} tokens")
         
         print("\n" + "="*80)
         print(f"📈 Total tokens used: {total_tokens}")

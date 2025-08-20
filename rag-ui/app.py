@@ -73,7 +73,7 @@ def process_query():
         return jsonify({"error": "Query is required"}), 400
     
     query = data['query'].strip()
-    chunk_type = data.get('chunk_type', 'layout-aware')  # Default to layout-aware
+    chunk_type = data.get('chunk_type', 'basic')  # Default to basic
     if not query:
         return jsonify({"error": "Query cannot be empty"}), 400
     
@@ -106,11 +106,12 @@ def process_query():
             try:
                 # Map user-friendly names to method names
                 method_map = {
-                    "layout-aware": "layout_aware_chunking"
+                    "basic": "layout_aware_chunking",
+                    "graph_rag_not": "graph_rag_wannabe"
                 }
                 method = method_map.get(chunk_type, "layout_aware_chunking")
                 
-                result = query_system.full_query_pipeline(query, method=method)
+                result = query_system.full_query_pipeline(query, top_k=10, method=method)
                 end_time = time.time()
                 
                 # Stream all captured log messages
@@ -118,6 +119,20 @@ def process_query():
                     yield f"data: {json.dumps({'type': 'log', 'message': log_msg})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'log', 'message': f'Query completed in {end_time - start_time:.2f} seconds'})}\n\n"
+                
+                # Add mermaid diagram for graph_rag_not
+                if method == "graph_rag_wannabe":
+                    # Extract hop counts from result
+                    hop_1_count = result.get('hop_1_count', 0)
+                    hop_2_count = result.get('hop_2_count', 0)
+                    final_count = len(result.get('chunks', []))
+                    
+                    # Create simple mermaid diagram
+                    method_name = "graph_rag_not" if method == "graph_rag_wannabe" else "basic"
+                    mermaid_diagram = f"🛤️  2-HOP JOURNEY:\n🔍 Query → 🎯 {method_name} → 🌱 {hop_1_count} → 🔄 {hop_2_count} → 🔧 {final_count} chunks"
+                    
+                    # Send mermaid as a log message
+                    yield f"data: {json.dumps({'type': 'log', 'message': mermaid_diagram})}\n\n"
                 
                 # Send the final result
                 yield f"data: {json.dumps({'type': 'result', 'data': result})}\n\n"
@@ -236,7 +251,7 @@ if __name__ == '__main__':
         
         app.run(
             host='0.0.0.0',
-            port=5002,
+            port=57489,
             debug=True,
             threaded=True
         )
