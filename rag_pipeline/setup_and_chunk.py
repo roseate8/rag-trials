@@ -34,7 +34,7 @@ def main():
     vector_store.create_collection()
     
     # OpenAI API key for LLM table classification
-    api_key = "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"
+    api_key = ""  # Replace with your OpenAI API key
     
     # Initialize the original layout-aware chunker (handles all scenarios automatically)
     layout_chunker = LayoutAwareChunker(max_words=300, min_words=15, openai_api_key=api_key)

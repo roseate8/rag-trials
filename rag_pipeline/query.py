@@ -173,7 +173,7 @@ def main():
     top_k = args["top_k"]
     
     # API key (in production, use environment variable)
-    api_key = "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"
+    api_key = ""  # Replace with your OpenAI API key
     
     print("🔍 Initializing LLM Query System...")
     print(f"📝 Query: \"{query}\"")

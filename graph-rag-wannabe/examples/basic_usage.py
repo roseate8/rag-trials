@@ -31,7 +31,7 @@ def test_with_existing_rag_pipeline():
         reranker = Reranker()
         
         # API key for LLM calls
-        api_key = "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"
+        api_key = ""  # Replace with your OpenAI API key
         
         # Initialize GraphRAGWannabe
         print("🤖 Initializing GraphRAGWannabe...")
@@ -88,7 +88,7 @@ def test_intent_classification_only():
         print("🧠 Testing LLM Intent Classification")
         print("=" * 40)
         
-        api_key = "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"
+        api_key = ""  # Replace with your OpenAI API key
         
         classifier = LLMIntentClassifier(api_key)
         
